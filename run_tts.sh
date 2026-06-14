@@ -14,10 +14,15 @@
 # Only CustomVoice checkpoints work (the backend calls generate_custom_voice).
 # Base models load but cannot synthesize the preset voices — do not use them.
 #
+# Default is hq-only (1.7B): a bare `./run_tts.sh` starts just the 1.7B. Run
+# `both` if you also want the 0.6B fast instance (watch memory — running both
+# alongside other local models can trigger an OOM SIGTERM on the 1.7B).
+#
 # Usage:
-#   ./run_tts.sh fast        # start 0.6B on :18881
-#   ./run_tts.sh hq          # start 1.7B on :18882
-#   ./run_tts.sh both        # start both
+#   ./run_tts.sh            # default: start 1.7B (hq) only
+#   ./run_tts.sh fast       # start 0.6B on :18881
+#   ./run_tts.sh hq         # start 1.7B on :18882
+#   ./run_tts.sh both       # start both
 #   ./run_tts.sh status      # show what is listening
 #   ./run_tts.sh stop        # stop both managed instances
 #   MODEL=<hf-id> PORT=<n> ./run_tts.sh custom   # arbitrary CustomVoice model
@@ -85,7 +90,7 @@ PY
     fi
 }
 
-case "${1:-both}" in
+case "${1:-hq}" in
     fast|0.6b)  start_one "$FAST_MODEL" "${PORT:-$FAST_PORT}" "fast-0.6B" ;;
     hq|1.7b)    start_one "$HQ_MODEL"   "${PORT:-$HQ_PORT}"   "hq-1.7B" ;;
     both)       start_one "$FAST_MODEL" "$FAST_PORT" "fast-0.6B"

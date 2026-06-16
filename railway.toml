@@ -1,9 +1,11 @@
 [build]
-builder = "nixpacks"
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+dockerBuildTarget = "cpu-base"
 
 [deploy]
 startCommand = "mkdir -p /tmp/huggingface && chmod 777 /tmp/huggingface && rm -rf /tmp/huggingface/tmp* && python -m api.main"
 healthcheckPath = "/health"
-healthcheckTimeout = 300
+healthcheckTimeout = 600
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

@@ -1,6 +1,5 @@
 [build]
 builder = "nixpacks"
-buildCommand = "pip install -e '.[api]'"
 
 [deploy]
 startCommand = "mkdir -p /tmp/huggingface && chmod 777 /tmp/huggingface && rm -rf /tmp/huggingface/tmp* && python -m api.main"

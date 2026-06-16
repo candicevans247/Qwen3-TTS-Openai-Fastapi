@@ -1,0 +1,59 @@
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    python3.12 \
+    python3.12-dev \
+    python3-pip \
+    python3.12-venv \
+    ffmpeg \
+    git \
+    build-essential \
+    curl \
+    ca-certificates \
+    sox \
+    libsox-fmt-all \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -sSL https://sdk.cloud.google.com | bash -s -- \
+    --disable-prompts \
+    --install-dir=/usr/local
+ENV PATH=$PATH:/usr/local/google-cloud-sdk/bin
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 \
+    && update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
+
+WORKDIR /app
+COPY . .
+
+RUN pip install --no-cache-dir \
+    "huggingface_hub[cli]>=0.23.0" \
+    "hf_transfer" \
+    && pip install --no-cache-dir -e ".[api]"
+
+RUN pip install flash-attn --no-build-isolation \
+    || echo "⚠️ flash-attn skipped"
+
+ENV TTS_BACKEND=official
+ENV TTS_MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+ENV TTS_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+ENV TTS_DEVICE=cuda
+ENV TTS_DTYPE=bfloat16
+ENV TTS_ATTN=flash_attention_2
+ENV TTS_WARMUP_ON_START=false
+ENV TTS_MAX_CONCURRENT=1
+ENV WORKERS=1
+ENV HOST=0.0.0.0
+ENV PORT=8080
+ENV IDLE_SHUTDOWN_TIMEOUT=0
+ENV MODEL_LOCAL_DIR=/tmp/model-cache/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+ENV HF_HOME=/tmp/hf-cache
+ENV GCS_MODEL_BUCKET=qwen3-tts-model-cache
+ENV GCS_MODEL_PATH=Qwen3-TTS-12Hz-1.7B-VoiceDesign
+
+COPY start-cloudrun.sh /app/start-cloudrun.sh
+RUN chmod +x /app/start-cloudrun.sh
+
+EXPOSE 8080
+CMD ["/app/start-cloudrun.sh"]

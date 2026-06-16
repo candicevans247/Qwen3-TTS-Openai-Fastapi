@@ -1,56 +1,23 @@
 # Dockerfile.railway
-# ─────────────────────────────────────────────
-# Stage 1: Download the model weights
-# We do this in a separate stage so the cache
-# layer is reused on rebuilds if nothing changed
-# ─────────────────────────────────────────────
-FROM python:3.12-slim AS model-downloader
+FROM python:3.12-slim
 
-# Install huggingface hub cli
-RUN pip install --no-cache-dir "huggingface_hub[cli]"
-
-# Download the 0.6B model (smallest, best for CPU)
-# This gets baked into the image so Railway doesn't
-# need to download it at runtime
-RUN huggingface-cli download \
-    Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice \
-    --local-dir /model-cache/Qwen3-TTS-12Hz-0.6B-CustomVoice \
-    --quiet
-
-# ─────────────────────────────────────────────
-# Stage 2: Runtime image
-# ─────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
-
-# System dependencies
-# ffmpeg is needed for audio format conversion
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     git \
     build-essential \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy the repo
 COPY . .
 
-# Install the package and API dependencies
-RUN pip install --no-cache-dir -e ".[api]"
+RUN pip install --no-cache-dir \
+    "huggingface_hub[cli]>=0.23.0" \
+    "hf_transfer" \
+    && pip install --no-cache-dir -e ".[api]"
 
-# Copy model weights from the downloader stage
-# They land in the HuggingFace cache directory
-# so the app finds them automatically
-RUN mkdir -p /root/.cache/huggingface/hub
-COPY --from=model-downloader \
-    /model-cache \
-    /root/.cache/huggingface/hub
-
-# ─────────────────────────────────────────────
-# Environment — CPU optimised defaults
-# These can all be overridden in Railway's
-# environment variable panel
-# ─────────────────────────────────────────────
 ENV TTS_BACKEND=pytorch
 ENV TTS_MODEL_ID=Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
 ENV TTS_DEVICE=cpu
@@ -60,25 +27,26 @@ ENV CPU_THREADS=4
 ENV CPU_INTEROP=1
 ENV OMP_NUM_THREADS=4
 ENV MKL_NUM_THREADS=4
-ENV TTS_WARMUP_ON_START=true
+ENV TTS_WARMUP_ON_START=false
 ENV TTS_MAX_CONCURRENT=1
 ENV WORKERS=1
 ENV HOST=0.0.0.0
 ENV PORT=8880
+ENV HF_HOME=/model-cache
+ENV HUGGINGFACE_HUB_CACHE=/model-cache
 
-# Railway injects $PORT at runtime — the server
-# reads PORT from env so this just works
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 EXPOSE 8880
 
-# Health check so Railway knows when the service
-# is ready (warmup can take 30-45s on first boot)
 HEALTHCHECK \
     --interval=30s \
     --timeout=10s \
-    --start-period=120s \
-    --retries=3 \
+    --start-period=300s \
+    --retries=5 \
     CMD python -c \
     "import urllib.request; urllib.request.urlopen('http://localhost:8880/health')" \
     || exit 1
 
-CMD ["python", "-m", "api.main"]
+CMD ["/app/start.sh"]

@@ -1,12 +1,12 @@
-FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+# Use PyTorch's official CUDA image — it already has
+# Python 3.11, CUDA, and all GPU drivers preinstalled
+# Much more reliable than building from nvidia/cuda base
+FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# System dependencies
 RUN apt-get update && apt-get install -y \
-    python3.12 \
-    python3.12-dev \
-    python3-pip \
-    python3.12-venv \
     ffmpeg \
     git \
     build-essential \
@@ -16,31 +16,34 @@ RUN apt-get update && apt-get install -y \
     libsox-fmt-all \
     && rm -rf /var/lib/apt/lists/*
 
+# Install gcloud SDK for gsutil (to download model from GCS)
 RUN curl -sSL https://sdk.cloud.google.com | bash -s -- \
     --disable-prompts \
     --install-dir=/usr/local
 ENV PATH=$PATH:/usr/local/google-cloud-sdk/bin
 
-RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 \
-    && update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
-
 WORKDIR /app
 COPY . .
 
+# Install Python dependencies
 RUN pip install --no-cache-dir \
     "huggingface_hub[cli]>=0.23.0" \
     "hf_transfer" \
     && pip install --no-cache-dir -e ".[api]"
 
+# Try flash attention — skip if it fails
 RUN pip install flash-attn --no-build-isolation \
-    || echo "⚠️ flash-attn skipped"
+    || echo "⚠️ flash-attn skipped — will use sdpa instead"
 
+# ─────────────────────────────────────────────
+# Environment
+# ─────────────────────────────────────────────
 ENV TTS_BACKEND=official
 ENV TTS_MODEL_ID=Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
 ENV TTS_MODEL_NAME=Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
 ENV TTS_DEVICE=cuda
 ENV TTS_DTYPE=bfloat16
-ENV TTS_ATTN=flash_attention_2
+ENV TTS_ATTN=sdpa
 ENV TTS_WARMUP_ON_START=false
 ENV TTS_MAX_CONCURRENT=1
 ENV WORKERS=1

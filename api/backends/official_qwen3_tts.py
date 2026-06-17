@@ -149,31 +149,30 @@ class OfficialQwen3TTSBackend(TTSBackend):
             raise RuntimeError(f"Failed to initialize official TTS backend: {e}")
     
     async def generate_speech(
-        self,
-        text: str,
-        voice: str,
-        language: str = "Auto",
-        instruct: Optional[str] = None,
-        speed: float = 1.0,
-    ) -> Tuple[np.ndarray, int]:
-        """
-        Generate speech from text using the official Qwen3-TTS model.
-        
-        Args:
-            text: The text to synthesize
-            voice: Voice name to use
-            language: Language code
-            instruct: Optional instruction for voice style
-            speed: Speech speed multiplier
-        
-        Returns:
-            Tuple of (audio_array, sample_rate)
-        """
-        if not self._ready:
-            await self.initialize()
-        
-        try:
-            # Offload blocking model call to a thread so the event loop stays responsive
+    self,
+    text: str,
+    voice: str,
+    language: str = "Auto",
+    instruct: Optional[str] = None,
+    speed: float = 1.0,
+) -> Tuple[np.ndarray, int]:
+    if not self._ready:
+        await self.initialize()
+
+    try:
+        model_type = self.get_model_type()
+
+        if model_type == "voicedesign":
+            # VoiceDesign: instruct describes the voice identity + style
+            # voice parameter is ignored — the model creates voice from instruct
+            wavs, sr = await asyncio.to_thread(
+                self.model.generate_voice_design,
+                text=text,
+                language=language,
+                instruct=instruct or "A warm, clear, professional voice",
+            )
+        else:
+            # CustomVoice: voice is a preset speaker name
             wavs, sr = await asyncio.to_thread(
                 self.model.generate_custom_voice,
                 text=text,
@@ -181,20 +180,21 @@ class OfficialQwen3TTSBackend(TTSBackend):
                 speaker=voice,
                 instruct=instruct,
             )
-            
-            audio = wavs[0]
-            
-            # Apply speed adjustment if needed
-            if speed != 1.0 and LIBROSA_AVAILABLE:
-                audio = librosa.effects.time_stretch(audio.astype(np.float32), rate=speed)
-            elif speed != 1.0:
-                logger.warning("Speed adjustment requested but librosa not available")
-            
-            return audio, sr
-            
-        except Exception as e:
-            logger.error(f"Speech generation failed: {e}")
-            raise RuntimeError(f"Speech generation failed: {e}")
+
+        audio = wavs[0]
+
+        if speed != 1.0 and LIBROSA_AVAILABLE:
+            audio = librosa.effects.time_stretch(
+                audio.astype(np.float32), rate=speed
+            )
+        elif speed != 1.0:
+            logger.warning("Speed adjustment requested but librosa not available")
+
+        return audio, sr
+
+    except Exception as e:
+        logger.error(f"Speech generation failed: {e}")
+        raise RuntimeError(f"Speech generation failed: {e}")
     
     def get_backend_name(self) -> str:
         """Return the name of this backend."""
@@ -294,12 +294,13 @@ class OfficialQwen3TTSBackend(TTSBackend):
         return "Base" in self.model_name and "CustomVoice" not in self.model_name
 
     def get_model_type(self) -> str:
-        """Return the model type (base or customvoice)."""
-        if "Base" in self.model_name:
-            return "base"
-        elif "CustomVoice" in self.model_name:
-            return "customvoice"
-        return "unknown"
+    if "Base" in self.model_name:
+        return "base"
+    elif "VoiceDesign" in self.model_name:
+        return "voicedesign"      # ← add this
+    elif "CustomVoice" in self.model_name:
+        return "customvoice"
+    return "unknown"
 
     async def generate_voice_clone(
         self,
